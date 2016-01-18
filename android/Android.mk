@@ -651,6 +651,32 @@ LOCAL_ADDITIONAL_DEPENDENCIES := $(LOCAL_PATH)/bluez/configure.ac
 include $(BUILD_EXECUTABLE)
 
 #
+# btattach
+#
+
+include $(CLEAR_VARS)
+
+LOCAL_SRC_FILES := \
+	bluez/tools/btattach.c \
+	bluez/src/shared/mainloop.c \
+	bluez/src/shared/io-mainloop.c \
+	bluez/src/shared/hci.c \
+	bluez/src/shared/queue.c \
+	bluez/src/shared/util.c \
+
+LOCAL_C_INCLUDES := \
+	$(LOCAL_PATH)/bluez
+
+LOCAL_CFLAGS := $(BLUEZ_COMMON_CFLAGS)
+
+LOCAL_MODULE_TAGS := optional
+LOCAL_MODULE := btattach
+
+LOCAL_ADDITIONAL_DEPENDENCIES := $(LOCAL_PATH)/bluez/configure.ac
+
+include $(BUILD_EXECUTABLE)
+
+#
 # hciattach
 #
 
