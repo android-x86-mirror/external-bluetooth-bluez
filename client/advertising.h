@@ -2,8 +2,7 @@
  *
  *  BlueZ - Bluetooth protocol stack for Linux
  *
- *  Copyright (C) 2011  Nokia Corporation
- *  Copyright (C) 2011  Marcel Holtmann <marcel@holtmann.org>
+ *  Copyright (C) 2016  Intel Corporation. All rights reserved.
  *
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -22,12 +21,10 @@
  *
  */
 
-typedef void (*attio_connect_cb) (GAttrib *attrib, gpointer user_data);
-typedef void (*attio_disconnect_cb) (gpointer user_data);
+void ad_register(DBusConnection *conn, GDBusProxy *manager, const char *type);
+void ad_unregister(DBusConnection *conn, GDBusProxy *manager);
 
-guint btd_device_add_attio_callback(struct btd_device *device,
-						attio_connect_cb cfunc,
-						attio_disconnect_cb dcfunc,
-						gpointer user_data);
-
-gboolean btd_device_remove_attio_callback(struct btd_device *device, guint id);
+void ad_advertise_uuids(const char *arg);
+void ad_advertise_service(const char *arg);
+void ad_advertise_manufacturer(const char *arg);
+void ad_advertise_tx_power(gboolean value);

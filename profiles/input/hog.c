@@ -54,14 +54,12 @@
 #include "suspend.h"
 #include "attrib/att.h"
 #include "attrib/gattrib.h"
-#include "src/attio.h"
 #include "attrib/gatt.h"
 #include "hog-lib.h"
 
 #define HOG_UUID		"00001812-0000-1000-8000-00805f9b34fb"
 
 struct hog_device {
-	guint			attioid;
 	struct btd_device	*device;
 	struct bt_hog		*hog;
 };
@@ -69,60 +67,35 @@ struct hog_device {
 static gboolean suspend_supported = FALSE;
 static struct queue *devices = NULL;
 
-static void attio_connected_cb(GAttrib *attrib, gpointer user_data)
+static void hog_device_accept(struct hog_device *dev, struct gatt_db *db)
 {
-	struct hog_device *dev = user_data;
-
-	DBG("HoG connected");
-
-	bt_hog_attach(dev->hog, attrib);
-}
-
-static void attio_disconnected_cb(gpointer user_data)
-{
-	struct hog_device *dev = user_data;
-
-	DBG("HoG disconnected");
-
-	bt_hog_detach(dev->hog);
-}
-
-static struct hog_device *hog_device_new(struct btd_device *device,
-						struct gatt_primary *prim)
-{
-	struct hog_device *dev;
 	char name[248];
 	uint16_t vendor, product, version;
 
-	if (device_name_known(device))
-		device_get_name(device, name, sizeof(name));
+	if (dev->hog)
+		return;
+
+	if (device_name_known(dev->device))
+		device_get_name(dev->device, name, sizeof(name));
 	else
 		strcpy(name, "bluez-hog-device");
 
-	vendor = btd_device_get_vendor(device);
-	product = btd_device_get_product(device);
-	version = btd_device_get_version(device);
+	vendor = btd_device_get_vendor(dev->device);
+	product = btd_device_get_product(dev->device);
+	version = btd_device_get_version(dev->device);
 
 	DBG("name=%s vendor=0x%X, product=0x%X, version=0x%X", name, vendor,
 							product, version);
 
+	dev->hog = bt_hog_new_default(name, vendor, product, version, db);
+}
+
+static struct hog_device *hog_device_new(struct btd_device *device)
+{
+	struct hog_device *dev;
+
 	dev = new0(struct hog_device, 1);
-	dev->hog = bt_hog_new_default(name, vendor, product, version, prim);
-	if (!dev->hog) {
-		free(dev);
-		return NULL;
-	}
-
 	dev->device = btd_device_ref(device);
-
-	/*
-	 * TODO: Remove attio callback and use .accept once using
-	 * bt_gatt_client.
-	 */
-	dev->attioid = btd_device_add_attio_callback(device,
-							attio_connected_cb,
-							attio_disconnected_cb,
-							dev);
 
 	if (!devices)
 		devices = queue_new();
@@ -142,7 +115,6 @@ static void hog_device_free(void *data)
 		devices = NULL;
 	}
 
-	btd_device_remove_attio_callback(dev->device, dev->attioid);
 	btd_device_unref(dev->device);
 	bt_hog_unref(dev->hog);
 	free(dev);
@@ -178,30 +150,16 @@ static int hog_probe(struct btd_service *service)
 {
 	struct btd_device *device = btd_service_get_device(service);
 	const char *path = device_get_path(device);
-	GSList *primaries, *l;
+	struct hog_device *dev;
 
 	DBG("path %s", path);
 
-	primaries = btd_device_get_primaries(device);
-	if (primaries == NULL)
+	dev = hog_device_new(device);
+	if (!dev)
 		return -EINVAL;
 
-	for (l = primaries; l; l = g_slist_next(l)) {
-		struct gatt_primary *prim = l->data;
-		struct hog_device *dev;
-
-		if (strcmp(prim->uuid, HOG_UUID) != 0)
-			continue;
-
-		dev = hog_device_new(device, prim);
-		if (!dev)
-			break;
-
-		btd_service_set_user_data(service, dev);
-		return 0;
-	}
-
-	return -EINVAL;
+	btd_service_set_user_data(service, dev);
+	return 0;
 }
 
 static void hog_remove(struct btd_service *service)
@@ -215,11 +173,46 @@ static void hog_remove(struct btd_service *service)
 	hog_device_free(dev);
 }
 
+static int hog_accept(struct btd_service *service)
+{
+	struct hog_device *dev = btd_service_get_user_data(service);
+	struct btd_device *device = btd_service_get_device(service);
+	struct gatt_db *db = btd_device_get_gatt_db(device);
+	GAttrib *attrib = btd_device_get_attrib(device);
+
+	if (!dev->hog) {
+		hog_device_accept(dev, db);
+		if (!dev->hog)
+			return -EINVAL;
+	}
+
+	/* TODO: Replace GAttrib with bt_gatt_client */
+	bt_hog_attach(dev->hog, attrib);
+
+	btd_service_connecting_complete(service, 0);
+
+	return 0;
+}
+
+static int hog_disconnect(struct btd_service *service)
+{
+	struct hog_device *dev = btd_service_get_user_data(service);
+
+	bt_hog_detach(dev->hog);
+
+	btd_service_disconnecting_complete(service, 0);
+
+	return 0;
+}
+
 static struct btd_profile hog_profile = {
 	.name		= "input-hog",
 	.remote_uuid	= HOG_UUID,
 	.device_probe	= hog_probe,
 	.device_remove	= hog_remove,
+	.accept		= hog_accept,
+	.disconnect	= hog_disconnect,
+	.auto_connect	= true,
 };
 
 static int hog_init(void)

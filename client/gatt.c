@@ -73,15 +73,21 @@ static void print_service(GDBusProxy *proxy, const char *description)
 
 	text = uuidstr_to_str(uuid);
 	if (!text)
-		text = uuid;
-
-	rl_printf("%s%s%s%s Service\n\t%s\n\t%s\n",
-				description ? "[" : "",
-				description ? : "",
-				description ? "] " : "",
-				primary ? "Primary" : "Secondary",
-				g_dbus_proxy_get_path(proxy),
-				text);
+		rl_printf("%s%s%s%s Service\n\t%s\n\t%s\n",
+					description ? "[" : "",
+					description ? : "",
+					description ? "] " : "",
+					primary ? "Primary" : "Secondary",
+					g_dbus_proxy_get_path(proxy),
+					uuid);
+	else
+		rl_printf("%s%s%s%s Service\n\t%s\n\t%s\n\t%s\n",
+					description ? "[" : "",
+					description ? : "",
+					description ? "] " : "",
+					primary ? "Primary" : "Secondary",
+					g_dbus_proxy_get_path(proxy),
+					uuid, text);
 }
 
 void gatt_add_service(GDBusProxy *proxy)
@@ -116,14 +122,19 @@ static void print_characteristic(GDBusProxy *proxy, const char *description)
 
 	text = uuidstr_to_str(uuid);
 	if (!text)
-		text = uuid;
-
-	rl_printf("%s%s%sCharacteristic\n\t%s\n\t%s\n",
-				description ? "[" : "",
-				description ? : "",
-				description ? "] " : "",
-				g_dbus_proxy_get_path(proxy),
-				text);
+		rl_printf("%s%s%sCharacteristic\n\t%s\n\t%s\n",
+					description ? "[" : "",
+					description ? : "",
+					description ? "] " : "",
+					g_dbus_proxy_get_path(proxy),
+					uuid);
+	else
+		rl_printf("%s%s%sCharacteristic\n\t%s\n\t%s\n\t%s\n",
+					description ? "[" : "",
+					description ? : "",
+					description ? "] " : "",
+					g_dbus_proxy_get_path(proxy),
+					uuid, text);
 }
 
 static gboolean characteristic_is_child(GDBusProxy *characteristic)
@@ -184,14 +195,19 @@ static void print_descriptor(GDBusProxy *proxy, const char *description)
 
 	text = uuidstr_to_str(uuid);
 	if (!text)
-		text = uuid;
-
-	rl_printf("%s%s%sDescriptor\n\t%s\n\t%s\n",
-				description ? "[" : "",
-				description ? : "",
-				description ? "] " : "",
-				g_dbus_proxy_get_path(proxy),
-				text);
+		rl_printf("%s%s%sDescriptor\n\t%s\n\t%s\n",
+					description ? "[" : "",
+					description ? : "",
+					description ? "] " : "",
+					g_dbus_proxy_get_path(proxy),
+					uuid);
+	else
+		rl_printf("%s%s%sDescriptor\n\t%s\n\t%s\n\t%s\n",
+					description ? "[" : "",
+					description ? : "",
+					description ? "] " : "",
+					g_dbus_proxy_get_path(proxy),
+					uuid, text);
 }
 
 static gboolean descriptor_is_child(GDBusProxy *characteristic)
@@ -283,7 +299,7 @@ static GDBusProxy *select_proxy(const char *path, GList *source)
 	return NULL;
 }
 
-GDBusProxy *gatt_select_attribute(const char *path)
+static GDBusProxy *select_attribute(const char *path)
 {
 	GDBusProxy *proxy;
 
@@ -296,6 +312,62 @@ GDBusProxy *gatt_select_attribute(const char *path)
 		return proxy;
 
 	return select_proxy(path, descriptors);
+}
+
+static GDBusProxy *select_proxy_by_uuid(GDBusProxy *parent, const char *uuid,
+					GList *source)
+{
+	GList *l;
+	const char *value;
+	DBusMessageIter iter;
+
+	for (l = source; l; l = g_list_next(l)) {
+		GDBusProxy *proxy = l->data;
+
+		if (parent && !g_str_has_prefix(g_dbus_proxy_get_path(proxy),
+						g_dbus_proxy_get_path(parent)))
+			continue;
+
+		if (g_dbus_proxy_get_property(proxy, "UUID", &iter) == FALSE)
+			continue;
+
+		dbus_message_iter_get_basic(&iter, &value);
+
+		if (strcasecmp(uuid, value) == 0)
+			return proxy;
+	}
+
+	return NULL;
+}
+
+static GDBusProxy *select_attribute_by_uuid(GDBusProxy *parent,
+							const char *uuid)
+{
+	GDBusProxy *proxy;
+
+	proxy = select_proxy_by_uuid(parent, uuid, services);
+	if (proxy)
+		return proxy;
+
+	proxy = select_proxy_by_uuid(parent, uuid, characteristics);
+	if (proxy)
+		return proxy;
+
+	return select_proxy_by_uuid(parent, uuid, descriptors);
+}
+
+GDBusProxy *gatt_select_attribute(GDBusProxy *parent, const char *arg)
+{
+	if (arg[0] == '/')
+		return select_attribute(arg);
+
+	if (parent) {
+		GDBusProxy *proxy = select_attribute_by_uuid(parent, arg);
+		if (proxy)
+			return proxy;
+	}
+
+	return select_attribute_by_uuid(parent, arg);
 }
 
 static char *attribute_generator(const char *text, int state, GList *source)

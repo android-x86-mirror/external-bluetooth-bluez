@@ -340,12 +340,8 @@ static void discovery_op_complete(struct discovery_op *op, bool success,
 								uint8_t err)
 {
 	/* Reset remaining range */
-	if (success) {
-		if (op->last != UINT16_MAX)
-			gatt_db_clear_range(op->client->db, op->last + 1,
-								UINT16_MAX);
-	} else
-		gatt_db_clear(op->client->db);
+	if (op->last != UINT16_MAX)
+		gatt_db_clear_range(op->client->db, op->last + 1, UINT16_MAX);
 
 	op->success = success;
 	op->complete_func(op, success, err);
@@ -368,6 +364,7 @@ static struct discovery_op *discovery_op_create(struct bt_gatt_client *client,
 	op->failure_func = failure_func;
 	op->start = start;
 	op->end = end;
+	op->last = gatt_db_isempty(client->db) ? 0 : UINT16_MAX;
 
 	return op;
 }
@@ -386,7 +383,7 @@ static void discovery_op_unref(void *data)
 	if (__sync_sub_and_fetch(&op->ref_count, 1))
 		return;
 
-	if (!op->success)
+	if (!op->success && op->failure_func)
 		op->failure_func(op);
 
 	discovery_op_free(op);
@@ -631,9 +628,11 @@ static bool read_ext_prop_desc(struct discovery_op *op)
 		return false;
 
 	handle = gatt_db_attribute_get_handle(attr);
-	bt_gatt_client_read_value(client, handle, ext_prop_read_cb,
+
+	if (!bt_gatt_client_read_value(client, handle, ext_prop_read_cb,
 							discovery_op_ref(op),
-							discovery_op_unref);
+							discovery_op_unref))
+		return false;
 
 	return true;
 }
@@ -981,6 +980,8 @@ static void discover_secondary_cb(bool success, uint8_t att_ecode,
 				success = false;
 				goto done;
 			}
+			/* Database has changed adjust last handle */
+			op->last = end;
 		}
 
 		/* Skip if service already active */
@@ -1025,6 +1026,7 @@ next:
 	util_debug(client->debug_callback, client->debug_data,
 				"Failed to start included services discovery");
 	discovery_op_unref(op);
+	success = false;
 
 done:
 	discovery_op_complete(op, success, att_ecode);
@@ -1050,11 +1052,14 @@ static void discover_primary_cb(bool success, uint8_t att_ecode,
 					"Primary service discovery failed."
 					" ATT ECODE: 0x%02x", att_ecode);
 		/* Reset error in case of not found */
-		if (BT_ATT_ERROR_ATTRIBUTE_NOT_FOUND) {
+		switch (att_ecode) {
+		case BT_ATT_ERROR_ATTRIBUTE_NOT_FOUND:
 			success = true;
 			att_ecode = 0;
+			goto secondary;
+		default:
+			goto done;
 		}
-		goto secondary;
 	}
 
 	if (!result || !bt_gatt_iter_init(&iter, result)) {
@@ -1088,6 +1093,8 @@ static void discover_primary_cb(bool success, uint8_t att_ecode,
 				success = false;
 				goto done;
 			}
+			/* Database has changed adjust last handle */
+			op->last = end;
 		}
 
 		/* Skip if service already active */
@@ -1603,13 +1610,6 @@ done:
 	notify_client_ready(client, success, att_ecode);
 }
 
-static void init_fail(struct discovery_op *op)
-{
-	struct bt_gatt_client *client = op->client;
-
-	gatt_db_clear(client->db);
-}
-
 static bool gatt_client_init(struct bt_gatt_client *client, uint16_t mtu)
 {
 	struct discovery_op *op;
@@ -1617,10 +1617,21 @@ static bool gatt_client_init(struct bt_gatt_client *client, uint16_t mtu)
 	if (client->in_init || client->ready)
 		return false;
 
-	op = discovery_op_create(client, 0x0001, 0xffff, init_complete,
-								init_fail);
+	op = discovery_op_create(client, 0x0001, 0xffff, init_complete, NULL);
 	if (!op)
 		return false;
+
+	/*
+	 * BLUETOOTH SPECIFICATION Version 4.2 [Vol 3, Part G] page 546:
+	 *
+	 * 4.3.1 Exchange MTU
+	 *
+	 * This sub-procedure shall not be used on a BR/EDR physical link since
+	 * the MTU size is negotiated using L2CAP channel configuration
+	 * procedures.
+	 */
+	if (bt_att_get_link_type(client->att) == BT_ATT_LINK_BREDR)
+		goto discover;
 
 	/* Check if MTU needs to be send */
 	mtu = MAX(BT_ATT_DEFAULT_LE_MTU, mtu);
@@ -1628,8 +1639,7 @@ static bool gatt_client_init(struct bt_gatt_client *client, uint16_t mtu)
 		goto discover;
 
 	/* Configure the MTU */
-	client->mtu_req_id = bt_gatt_exchange_mtu(client->att,
-						MAX(BT_ATT_DEFAULT_LE_MTU, mtu),
+	client->mtu_req_id = bt_gatt_exchange_mtu(client->att, mtu,
 						exchange_mtu_cb,
 						discovery_op_ref(op),
 						discovery_op_unref);

@@ -1102,10 +1102,8 @@ static const GDBusMethodTable media_folder_methods[] = {
 };
 
 static const GDBusPropertyTable media_folder_properties[] = {
-	{ "Name", "s", get_folder_name, NULL, folder_name_exists,
-					G_DBUS_PROPERTY_FLAG_EXPERIMENTAL },
-	{ "NumberOfItems", "u", get_items, NULL, items_exists,
-					G_DBUS_PROPERTY_FLAG_EXPERIMENTAL },
+	{ "Name", "s", get_folder_name, NULL, folder_name_exists },
+	{ "NumberOfItems", "u", get_items, NULL, items_exists },
 	{ }
 };
 
@@ -1406,9 +1404,14 @@ void media_player_set_browsable(struct media_player *mp, bool enabled)
 					"Browsable");
 }
 
+bool media_player_get_browsable(struct media_player *mp)
+{
+	return mp->browsable;
+}
+
 void media_player_set_searchable(struct media_player *mp, bool enabled)
 {
-	if (mp->browsable == enabled)
+	if (mp->searchable == enabled)
 		return;
 
 	DBG("%s", enabled ? "true" : "false");
@@ -1479,17 +1482,26 @@ static DBusMessage *media_item_play(DBusConnection *conn, DBusMessage *msg,
 {
 	struct media_item *item = data;
 	struct media_player *mp = item->player;
+	struct media_folder *folder = mp->scope;
 	struct player_callback *cb = mp->cb;
+	const char *path;
 	int err;
 
 	if (!item->playable || !cb->cbs->play_item)
 		return btd_error_not_supported(msg);
 
-	err = cb->cbs->play_item(mp, item->path, item->uid, cb->user_data);
+	if (folder->msg)
+		return btd_error_failed(msg, strerror(EBUSY));
+
+	path = mp->search && folder == mp->search ? "/Search" : item->path;
+
+	err = cb->cbs->play_item(mp, path, item->uid, cb->user_data);
 	if (err < 0)
 		return btd_error_failed(msg, strerror(-err));
 
-	return g_dbus_create_reply(msg, DBUS_TYPE_INVALID);
+	folder->msg = dbus_message_ref(msg);
+
+	return NULL;
 }
 
 static DBusMessage *media_item_add_to_nowplaying(DBusConnection *conn,
@@ -1678,7 +1690,7 @@ static gboolean get_metadata(const GDBusPropertyTable *property,
 }
 
 static const GDBusMethodTable media_item_methods[] = {
-	{ GDBUS_METHOD("Play", NULL, NULL, media_item_play) },
+	{ GDBUS_ASYNC_METHOD("Play", NULL, NULL, media_item_play) },
 	{ GDBUS_METHOD("AddtoNowPlaying", NULL, NULL,
 					media_item_add_to_nowplaying) },
 	{ }
@@ -1693,6 +1705,27 @@ static const GDBusPropertyTable media_item_properties[] = {
 	{ "Metadata", "a{sv}", get_metadata, NULL, metadata_exists },
 	{ }
 };
+
+void media_player_play_item_complete(struct media_player *mp, int err)
+{
+	struct media_folder *folder = mp->scope;
+	DBusMessage *reply;
+
+	if (folder == NULL || folder->msg == NULL)
+		return;
+
+	if (err < 0) {
+		reply = btd_error_failed(folder->msg, strerror(-err));
+		goto done;
+	}
+
+	reply = g_dbus_create_reply(folder->msg, DBUS_TYPE_INVALID);
+
+done:
+	g_dbus_send_message(btd_get_dbus_connection(), reply);
+	dbus_message_unref(folder->msg);
+	folder->msg = NULL;
+}
 
 void media_item_set_playable(struct media_item *item, bool value)
 {

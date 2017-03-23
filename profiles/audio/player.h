@@ -85,6 +85,7 @@ void media_player_set_type(struct media_player *mp, const char *type);
 void media_player_set_subtype(struct media_player *mp, const char *subtype);
 void media_player_set_name(struct media_player *mp, const char *name);
 void media_player_set_browsable(struct media_player *mp, bool enabled);
+bool media_player_get_browsable(struct media_player *mp);
 void media_player_set_searchable(struct media_player *mp, bool enabled);
 void media_player_set_folder(struct media_player *mp, const char *path,
 								uint32_t items);
@@ -101,6 +102,7 @@ struct media_item *media_player_create_item(struct media_player *mp,
 						player_item_type_t type,
 						uint64_t uid);
 
+void media_player_play_item_complete(struct media_player *mp, int err);
 void media_item_set_playable(struct media_item *item, bool value);
 void media_player_list_complete(struct media_player *mp, GSList *items,
 								int err);
