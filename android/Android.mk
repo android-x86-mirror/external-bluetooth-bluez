@@ -716,6 +716,25 @@ LOCAL_ADDITIONAL_DEPENDENCIES := $(LOCAL_PATH)/bluez/configure.ac
 include $(BUILD_EXECUTABLE)
 
 #
+# rtk_hciattach
+#
+
+include $(CLEAR_VARS)
+
+LOCAL_SRC_FILES := \
+	bluez/tools/hciattach.c \
+	bluez/tools/hciattach_rtk.c \
+
+LOCAL_C_INCLUDES := \
+	$(LOCAL_PATH)/bluez \
+
+LOCAL_MODULE_TAGS := optional
+LOCAL_MODULE := rtk_hciattach
+LOCAL_PROPRIETARY_MODULE := true
+
+include $(BUILD_EXECUTABLE)
+
+#
 # brcm_patchram_plus
 #
 include $(CLEAR_VARS)
