@@ -449,19 +449,6 @@ static void h5_crc_update(RT_U16 *crc, RT_U8 d)
     *crc = reg;
 }
 
-struct __una_u16 { RT_U16 x; };
-static __inline RT_U16 __get_unaligned_cpu16(const void *p)
-{
-    const struct __una_u16 *ptr = (const struct __una_u16 *)p;
-    return ptr->x;
-}
-
-
-static __inline RT_U16 get_unaligned_be16(const void *p)
-{
-    return __get_unaligned_cpu16((const RT_U8 *)p);
-}
-
 static __inline RT_U16 get_unaligned_le16(RT_U8 *p)
 {
     return (RT_U16)(*p)+((RT_U16)(*(p+1))<<8);
@@ -1600,7 +1587,6 @@ int rtk_get_bt_config(unsigned char** config_buf, RT_U32* config_baud_rate)
     }
 #endif
 
-GET_CONFIG:
     ret = sprintf(bt_config_file_name, BT_CONFIG_DIRECTORY"rtlbt_config");
     if (stat(bt_config_file_name, &st) < 0) {
         RS_ERR("can't access bt config file:%s, errno:%d\n", bt_config_file_name, errno);
