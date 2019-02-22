@@ -743,7 +743,7 @@ static void h5_remove_acked_pkt(rtk_hw_cfg_t *h5)
     }
 
     //skb_queue_walk_safe(&h5->unack, skb, tmp) // remove ack'ed packet from h5->unack queue
-    for (i = 0; i < 5; ++i) {
+    while (i < 5) {
         if (i >= pkts_to_be_removed)
             break;
         i++;
