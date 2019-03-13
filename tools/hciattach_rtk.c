@@ -795,7 +795,10 @@ static void hci_event_cmd_complete(struct sk_buff* skb)
         status = skb->data[0];
         RS_DBG("Read BD Address with Status:%x", status);
         if (!status) {
-            RS_DBG("BD Address: %8x%8x", *(int*)&skb->data[1], *(int*)&skb->data[5]);
+            int a1, a2;
+            memcpy(&a1, &skb->data[1], sizeof(int));
+            memcpy(&a2, &skb->data[5], sizeof(int));
+            RS_DBG("BD Address: %8x%8x", a1, a2);
         }
         break;
 
@@ -1377,9 +1380,9 @@ static int rtk_vendor_change_speed_h4(int fd, RT_U32 baudrate)
 
     baudrate = cpu_to_le32(baudrate);
 #ifdef BAUDRATE_4BYTES
-    memcpy((RT_U16*)&cmd[4], &baudrate, 4);
+    memcpy(&cmd[4], &baudrate, 4);
 #else
-    memcpy((RT_U16*)&cmd[4], &baudrate, 2);
+    memcpy(&cmd[4], &baudrate, 2);
     cmd[6] = 0;
     cmd[7] = 0;
 #endif
@@ -1650,9 +1653,9 @@ int rtk_vendor_change_speed_h5(int fd, RT_U32 baudrate)
 
     baudrate = cpu_to_le32(baudrate);
 #ifdef BAUDRATE_4BYTES
-    memcpy((RT_U16*)&cmd[3], &baudrate, 4);
+    memcpy(&cmd[3], &baudrate, 4);
 #else
-    memcpy((RT_U16*)&cmd[3], &baudrate, 2);
+    memcpy(&cmd[3], &baudrate, 2);
 
     cmd[5] = 0;
     cmd[6] = 0;
